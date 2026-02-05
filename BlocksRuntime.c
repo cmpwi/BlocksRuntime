@@ -185,15 +185,14 @@ _Block_byref_dispose(void const *s)
 	f = atomic_load(&fwd->flags);
 
 	if ((f & BLOCK_BYREF_NEEDS_FREE) == 0 ||
-	    (f & BLOCK_REFCOUNT_MASK) == 0)
+	    (f & BLOCK_REFCOUNT_MASK) == 0 ||
+	     releaseFlags(&fwd->flags) == false)
 		return;
 
-	if (releaseFlags(&fwd->flags)) {
-		if (f & BLOCK_BYREF_HAS_COPY_DISPOSE)
-			fwd->ByrefDisposeHelper(fwd);
+	if (f & BLOCK_BYREF_HAS_COPY_DISPOSE)
+		fwd->ByrefDisposeHelper(fwd);
 
-		free((void *)fwd);
-	}
+	free((void *)fwd);
 }
 
 /*
