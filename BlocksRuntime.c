@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2025 Paul Olteanu
+ * Copyright (c) 2025-2026 Paul Olteanu
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted.
@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdatomic.h>
 
+#include "Block.h"
 #include "Block_private.h"
 
 /*
@@ -27,7 +28,6 @@
 void *_NSConcreteStackBlock[32] = { 0 };
 void *_NSConcreteMallocBlock[32] = { 0 };
 void *_NSConcreteGlobalBlock[32] = { 0 };
-/* libobjc2 expects these; they are only used under GC and should go away. */
 void *_NSConcreteAutoBlock[32] = { 0 };
 void *_NSConcreteFinalizingBlock[32] = { 0 };
 
@@ -35,10 +35,10 @@ void *_NSConcreteFinalizingBlock[32] = { 0 };
  * Function pointers for Objective-C object management routines.
  */
 
-[[clang::always_inline]] static void empty(const void *x) { };
-static void (*_Block_objc_retain)(const void *) = empty;
-static void (*_Block_objc_release)(const void *) = empty;
-static void (*_Block_objc_delete_weak_refs)(const void *) = empty;
+[[clang::always_inline]] static void empty(void const *x) { (void)x; }
+static void (*_Block_objc_retain)(void const *) = empty;
+static void (*_Block_objc_release)(void const *) = empty;
+static void (*_Block_objc_delete_weak_refs)(void const *) = empty;
 
 /*
  * Reference counting routines for Blocks and byrefs.
@@ -46,7 +46,7 @@ static void (*_Block_objc_delete_weak_refs)(const void *) = empty;
 
 [[clang::always_inline]]
 inline static void
-retainFlags(_Atomic int *flags)
+retainFlags(int _Atomic *flags)
 {
 	int f = atomic_load(flags);
 
@@ -59,7 +59,7 @@ retainFlags(_Atomic int *flags)
 
 [[clang::always_inline]]
 inline static bool
-releaseFlags(_Atomic int *flags)
+releaseFlags(int _Atomic *flags)
 {
 	int f = atomic_load(flags);
 
@@ -84,15 +84,12 @@ releaseFlags(_Atomic int *flags)
  */
 
 void *
-_Block_copy(const void *b)
+_Block_copy(void *b)
 {
 	BlockLiteral *aBlock, *blockCopy;
 	int f;
 
-	if (b == nullptr)
-		return nullptr;
-
-	aBlock = (void *)b;
+	aBlock = (BlockLiteral *)b;
 	f = atomic_load(&aBlock->flags);
 
 	if (f & BLOCK_IS_GLOBAL && aBlock->isa == &_NSConcreteGlobalBlock)
@@ -104,30 +101,28 @@ _Block_copy(const void *b)
 	}
 
 	if (aBlock->isa != &_NSConcreteStackBlock ||
-	    (blockCopy = calloc(1, aBlock->descriptor->blockSize)) == nullptr)
-		return nullptr;
+	    (blockCopy = (BlockLiteral *)malloc(
+	     aBlock->descriptor->blockSize)) == nullptr)
+		abort();
 
-	memmove(blockCopy, aBlock, aBlock->descriptor->blockSize);
+	memcpy(blockCopy, aBlock, aBlock->descriptor->blockSize);
 	blockCopy->isa = _NSConcreteMallocBlock;
 	atomic_init(&blockCopy->flags, f | BLOCK_NEEDS_FREE | 2);
 
 	if (f & BLOCK_HAS_COPY_DISPOSE)
-		(*aBlock->copyDisposeDescriptor->BlockCopyHelper)(blockCopy,
+		aBlock->copyDisposeDescriptor->BlockCopyHelper(blockCopy,
 								aBlock);
 
 	return blockCopy;
 }
 
 void
-_Block_release(const void *b)
+_Block_release(void *b)
 {
 	BlockLiteral *aBlock;
 	int f;
 
-	if (b == nullptr)
-		return;
-
-	aBlock = (void *)b;
+	aBlock = (BlockLiteral *)b;
 	f = atomic_load(&aBlock->flags);
 
 	if (f & BLOCK_IS_GLOBAL || (f & BLOCK_NEEDS_FREE) == 0 ||
@@ -136,11 +131,11 @@ _Block_release(const void *b)
 		return;
 
 	if (f & BLOCK_HAS_COPY_DISPOSE)
-		(*aBlock->copyDisposeDescriptor->BlockDisposeHelper)(aBlock);
+		aBlock->copyDisposeDescriptor->BlockDisposeHelper(aBlock);
 
 	_Block_objc_delete_weak_refs(aBlock);
 	_Block_objc_release(aBlock);
-	free(aBlock);
+	free((void *)aBlock);
 }
 
 /*
@@ -149,56 +144,45 @@ _Block_release(const void *b)
 
 [[clang::always_inline]]
 inline static void
-_Block_byref_assign(void *d, const void *s)
+_Block_byref_assign(void **d, void *s)
 {
-	BlockCopyDisposeByref *src, *fwd, *expected, *copy;
+	BlockCopyDisposeByref *src, *fwd, *copy;
 	int f;
 
-	if (d == nullptr || s == nullptr)
-		return;
-
 	src = (BlockCopyDisposeByref *)s;
-	fwd = atomic_load_explicit(&src->forwarding, memory_order_acquire);
-	expected = src;
-
-	f = atomic_load_explicit(&fwd->flags, memory_order_relaxed);
+	fwd = src->forwarding;
+	copy = fwd;
+	f = atomic_load(&fwd->flags);
 
 	if (f & BLOCK_BYREF_NEEDS_FREE)
 		retainFlags(&fwd->flags);
 	else if ((f & BLOCK_REFCOUNT_MASK) == 0 && src == fwd) {
 		if ((copy = calloc(1, src->size)) == nullptr)
-			return;
+			abort();
 
-		memmove(copy, src, src->size);
-		atomic_init(&copy->forwarding, copy);
+		memcpy(copy, src, src->size);
+		copy->forwarding = copy;
 		atomic_init(&copy->flags, f | BLOCK_BYREF_NEEDS_FREE | 4);
+		
+		if (f & BLOCK_HAS_COPY_DISPOSE)
+			src->ByrefCopyHelper(copy, src);
 
-		if (atomic_compare_exchange_strong_explicit(&src->forwarding,
-		    &expected, copy, memory_order_release,
-		    memory_order_relaxed)) {
-			fwd = copy;
-			if (f & BLOCK_BYREF_HAS_COPY_DISPOSE)
-				(*src->ByrefCopyHelper)(copy, src);
-		} else
-			free((void *)copy);
-	}
+		src->forwarding = copy;
+	} else
+		abort();
 
-	*(void **)d = fwd;
+	*d = (void *)copy;
 }
 
 [[clang::always_inline]]
 inline static void
-_Block_byref_dispose(const void *s)
+_Block_byref_dispose(void const *s)
 {
-	BlockCopyDisposeByref *src, *fwd;
+	BlockCopyDisposeByref *fwd;
 	int f;
 
-	if (s == nullptr)
-		return;
-
-	src = (BlockCopyDisposeByref *)s;
-	fwd = atomic_load_explicit(&src->forwarding, memory_order_acquire);
-	f = atomic_load_explicit(&fwd->flags, memory_order_relaxed);
+	fwd = ((BlockCopyDisposeByref const *)s)->forwarding;
+	f = atomic_load(&fwd->flags);
 
 	if ((f & BLOCK_BYREF_NEEDS_FREE) == 0 ||
 	    (f & BLOCK_REFCOUNT_MASK) == 0)
@@ -206,7 +190,7 @@ _Block_byref_dispose(const void *s)
 
 	if (releaseFlags(&fwd->flags)) {
 		if (f & BLOCK_BYREF_HAS_COPY_DISPOSE)
-			(*fwd->ByrefDisposeHelper)(fwd);
+			fwd->ByrefDisposeHelper(fwd);
 
 		free((void *)fwd);
 	}
@@ -217,21 +201,16 @@ _Block_byref_dispose(const void *s)
  */
 
 void
-_Block_object_assign(void *dest, const void *src, const int captureFlags)
+_Block_object_assign(void **dest, void *src, int const captureFlags)
 {	
-	if ((captureFlags & (BLOCK_FIELD_IS_OBJECT | BLOCK_FIELD_IS_BLOCK |
-			     BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK |
-			     BLOCK_BYREF_CALLER)) == 0)
-		return;
-
 	switch (captureFlags) {
 	case BLOCK_FIELD_IS_OBJECT:
 		_Block_objc_retain(src);
-		*(const void **)dest = src;
+		*dest = src;
 		break;
 
 	case BLOCK_FIELD_IS_BLOCK:
-		*(void **)dest = _Block_copy((void *)src);
+		*dest = _Block_copy(src);
 		break;
 
 	case BLOCK_FIELD_IS_BYREF:
@@ -243,29 +222,24 @@ _Block_object_assign(void *dest, const void *src, const int captureFlags)
 	case BLOCK_FIELD_IS_BYREF | BLOCK_BYREF_CALLER:
 	case BLOCK_FIELD_IS_BLOCK | BLOCK_FIELD_IS_WEAK | BLOCK_BYREF_CALLER:
 	case BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK | BLOCK_BYREF_CALLER:
-		*(const void **)dest = src;
+		*dest = src;
 		break;
 
 	default:
-		break;
+		abort();
 	}
 }
 
 void
-_Block_object_dispose(const void *src, const int captureFlags)
+_Block_object_dispose(void *src, int const captureFlags)
 {
-	if ((captureFlags & (BLOCK_FIELD_IS_OBJECT | BLOCK_FIELD_IS_BLOCK |
-			     BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK |
-			     BLOCK_BYREF_CALLER)) == 0)
-		return;
-
 	switch (captureFlags) {
 	case BLOCK_FIELD_IS_OBJECT:
 		_Block_objc_release(src);
 		break;
 
 	case BLOCK_FIELD_IS_BLOCK:
-		_Block_release((void *)src);
+		_Block_release(src);
 		break;
 
 	case BLOCK_FIELD_IS_BYREF:
@@ -274,7 +248,7 @@ _Block_object_dispose(const void *src, const int captureFlags)
 		break;
 
 	default:
-		break;
+		abort();
 	}
 }
 
@@ -283,7 +257,7 @@ _Block_object_dispose(const void *src, const int captureFlags)
  */
 
 void
-_Block_use_RR2(const Block_callbacks_RR *callbacks)
+_Block_use_RR2(Block_callbacks_RR const *callbacks)
 {
         _Block_objc_retain = callbacks->retain;
         _Block_objc_release = callbacks->release;

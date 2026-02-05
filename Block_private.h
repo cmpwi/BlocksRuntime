@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2025 Paul Olteanu
+ * Copyright (c) 2025-2026 Paul Olteanu
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted.
@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 enum BlockRefcountFlags : unsigned short {
-	BLOCK_DEALLOCATING = 1,
+	BLOCK_DEALLOCATING = 0x1,
 	BLOCK_REFCOUNT_MASK = 0xFFFE
 };
 
@@ -48,7 +48,7 @@ enum BlockCaptureFlags : int {
 
 typedef struct BlockLiteral {
 	void *isa;
-	_Atomic int flags;
+	int _Atomic flags;
 	int reserved;
 	void (*BlockInvoke)(struct BlockLiteral *, ...);
 	union {
@@ -65,8 +65,8 @@ typedef struct BlockDescriptor {
 } BlockDescriptor;
 
 typedef struct BlockCopyDisposeDescriptor {
-	long reserved;
-	long blockSize;
+	unsigned long reserved;
+	unsigned long blockSize;
 	void (*BlockCopyHelper)(BlockLiteral *, const BlockLiteral *);
 	void (*BlockDisposeHelper)(BlockLiteral *);
 	char *typeEncoding;
@@ -74,23 +74,40 @@ typedef struct BlockCopyDisposeDescriptor {
 } BlockCopyDisposeDescriptor;
 
 typedef struct BlockByref {
-	void *reserved;
-	_Atomic (struct BlockByref *)forwarding;
-	_Atomic int flags;
+	void *isa;
+	struct BlockByref *forwarding;
+	int _Atomic flags;
 	unsigned int size;
-	char *extendedLayout;
 } BlockByref;
+
+typedef struct BlockExtendedByref {
+	void *isa;
+	struct BlockExtendedByref *forwarding;
+	int _Atomic flags;
+	unsigned int size;
+	char const *extendedLayout;
+} BlockExtendedByref;
 
 typedef struct BlockCopyDisposeByref {
 	void *reserved;
-	_Atomic (struct BlockCopyDisposeByref *)forwarding;
-	_Atomic int flags;
+	struct BlockCopyDisposeByref *forwarding;
+	int _Atomic flags;
 	unsigned int size;
 	void (*ByrefCopyHelper)(struct BlockCopyDisposeByref *,
 				const struct BlockCopyDisposeByref *);
 	void (*ByrefDisposeHelper)(struct BlockCopyDisposeByref *);
-	char *extendedLayout;
 } BlockCopyDisposeByref;
+
+typedef struct BlockCopyDisposeExtendedByref {
+	void *reserved;
+	struct BlockCopyDisposeExtendedByref *forwarding;
+	int _Atomic flags;
+	unsigned int size;
+	void (*ByrefCopyHelper)(struct BlockCopyDisposeExtendedByref *,
+				const struct BlockCopyDisposeExtendedByref *);
+	void (*ByrefDisposeHelper)(struct BlockCopyDisposeExtendedByref *);
+	char const *extendedLayout;
+} BlockCopyDisposeExtendedByref;
 
 /*
  * Compatibility structures.
@@ -102,8 +119,8 @@ struct Block_descriptor_1 {
 };
 
 struct Block_descriptor_2 {
-	void (*copy)(void *, const void *);
-	void (*dispose)(const void *);
+	void (*copy)(void *, void const *);
+	void (*dispose)(void const *);
 };
 
 struct Block_descriptor_3 {
@@ -137,9 +154,9 @@ struct Block_byref_3 {
 
 typedef struct Block_callbacks_RR {
 	unsigned long size;
-	void (*retain)(const void *);
-	void (*release)(const void *);
-	void (*destructInstance)(const void *);
+	void (*retain)(void const *);
+	void (*release)(void const *);
+	void (*destructInstance)(void const *);
 } Block_callbacks_RR;
 
 /*
@@ -147,35 +164,38 @@ typedef struct Block_callbacks_RR {
  */
 
 void
-_Block_object_assign(void *, const void *, const int);
+_Block_object_assign(void **, void *, int const);
 
 void
-_Block_object_dispose(const void *, const int);
+_Block_object_dispose(void *, int const);
 
 void
-_Block_use_RR2(const Block_callbacks_RR *);
+_Block_use_RR2(Block_callbacks_RR const *);
 
 bool
-_Block_has_signature(const void *);
+_Block_has_signature(void const *);
 
-const char *
-_Block_signature(const void *);
-
-bool
-_Block_tryRetain(const void *);
+char const *
+_Block_signature(void const *);
 
 bool
-_Block_isDeallocating(const void *);
-
-long
-_Block_size(const void *);
+_Block_tryRetain(void *);
 
 bool
-_Block_use_stret(const void *);
+_Block_isDeallocating(void const *);
+
+unsigned long
+_Block_size(void const *);
+
+bool
+_Block_use_stret(void const *);
 
 extern void *_NSConcreteStackBlock[32];
 extern void *_NSConcreteMallocBlock[32];
 extern void *_NSConcreteGlobalBlock[32];
+/* libobjc2 expects these; they are only used under GC and should go away. */
+extern void *_NSConcreteAutoBlock[32];
+extern void *_NSConcreteFinalizingBlock[32];
 
 #if __cplusplus
 }

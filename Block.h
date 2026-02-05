@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2025 Paul Olteanu
+ * Copyright (c) 2025-2026 Paul Olteanu
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted.
@@ -21,13 +21,13 @@ extern "C" {
 #endif
 
 void *
-_Block_copy(const void *);
+_Block_copy(void *);
 
 void
-_Block_release(const void *);
+_Block_release(void *);
 
-#define Block_copy(x) ((typeof(x))_Block_copy((const void *)(x)))
-#define Block_release(x) _Block_release((const void *)(x))
+#define Block_copy(x) ((typeof(x))_Block_copy((void *)(x)))
+#define Block_release(x) _Block_release((void *)(x))
 
 #if __cplusplus
 }

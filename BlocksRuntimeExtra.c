@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2025 Paul Olteanu
+ * Copyright (c) 2025-2026 Paul Olteanu
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted.
@@ -23,28 +23,19 @@
  */
 
 bool
-_Block_has_signature(const void *b)
+_Block_has_signature(void const *b)
 {
-	int f;
-
-	if (b == nullptr)
-		return false;
-
-	f = atomic_load(&((BlockLiteral *)b)->flags);
-
-	return f & BLOCK_HAS_SIGNATURE;
+	return atomic_load(&((BlockLiteral const *)b)->flags) &
+		BLOCK_HAS_SIGNATURE;
 }
 
-const char *
-_Block_signature(const void *b)
+char const *
+_Block_signature(void const *b)
 {
-	const BlockLiteral *aBlock;
+	BlockLiteral const *aBlock;
 	int f;
 
-	if (b == nullptr)
-		return nullptr;
-
-	aBlock = (const BlockLiteral *)b;
+	aBlock = (BlockLiteral const *)b;
 	f = atomic_load(&aBlock->flags);
 
 	if ((f & BLOCK_HAS_SIGNATURE) == 0)
@@ -56,15 +47,12 @@ _Block_signature(const void *b)
 }
 
 bool
-_Block_tryRetain(const void *b)
+_Block_tryRetain(void *b)
 {
 	BlockLiteral *aBlock;
 	int f;
 
-	if (b == nullptr)
-		return false;
-
-	aBlock = (void *)b;
+	aBlock = (BlockLiteral *)b;
 	f = atomic_load(&aBlock->flags);
 
 	while (true) {
@@ -78,40 +66,28 @@ _Block_tryRetain(const void *b)
 }
 
 bool
-_Block_isDeallocating(const void *b)
+_Block_isDeallocating(void const *b)
 {
-        int f;
-
-        if (b == nullptr)
-                return false;
-
-        f = atomic_load(&((const BlockLiteral *)b)->flags);
-
-        return f & BLOCK_DEALLOCATING;
+	return atomic_load(&((BlockLiteral const *)b)->flags) &
+		BLOCK_DEALLOCATING;
 }
 
 /*
  * Extra compatibility routines.
  */
 
-long
-_Block_size(const void *b)
+unsigned long
+_Block_size(void const *b)
 {
-	if (b == nullptr)
-		return 0;
-
-	return ((const BlockLiteral *)b)->descriptor->blockSize;
+	return ((BlockLiteral const *)b)->descriptor->blockSize;
 }
 
 bool
-_Block_use_stret(const void *b)
+_Block_use_stret(void const *b)
 {
 	int f;
 
-	if (b == nullptr)
-		return false;
-
-	f = atomic_load(&((const BlockLiteral *)b)->flags);
+	f = atomic_load(&((BlockLiteral const *)b)->flags);
 
 	return (f & (BLOCK_HAS_SIGNATURE | BLOCK_USE_STRET)) ==
 		    (BLOCK_HAS_SIGNATURE | BLOCK_USE_STRET);

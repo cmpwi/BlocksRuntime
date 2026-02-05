@@ -1,5 +1,8 @@
 
-CFLAGS = -std=c23 -fPIC -Wall -Werror -Os
+CFLAGS = -std=c23 -fPIC -Os \
+	-Werror -Wall -Wextra -Weverything -Wno-pre-c11-compat \
+	-Wno-pre-c23-compat -Wno-reserved-identifier \
+	-Wno-incompatible-library-redeclaration -Wno-undef -g
 LDFLAGS = -shared
 
 SRCS = BlocksRuntime.c BlocksRuntimeExtra.c
