@@ -124,8 +124,8 @@ struct Block_descriptor_2 {
 };
 
 struct Block_descriptor_3 {
-	const char *signature;
-	const char *layout;
+	char const *signature;
+	char const *layout;
 };
 
 struct Block_layout {
@@ -149,7 +149,7 @@ struct Block_byref_2 {
 };
 
 struct Block_byref_3 {
-	const char *layout;
+	char const *layout;
 };
 
 typedef struct Block_callbacks_RR {
