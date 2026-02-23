@@ -157,7 +157,8 @@ _Block_byref_assign(void **d, void *s)
 	if (f & BLOCK_BYREF_NEEDS_FREE)
 		retainFlags(&fwd->flags);
 	else if ((f & BLOCK_REFCOUNT_MASK) == 0 && src == fwd) {
-		if ((copy = calloc(1, src->size)) == nullptr)
+		if ((copy = (BlockCopyDisposeByref *)malloc(
+		     src->size)) == nullptr)
 			abort();
 
 		memcpy(copy, src, src->size);
