@@ -92,17 +92,21 @@ _Block_copy(void *b)
 	aBlock = (BlockLiteral *)b;
 	f = atomic_load(&aBlock->flags);
 
+	/* Global Blocks are immutable, just return it. */
 	if (f & BLOCK_IS_GLOBAL && aBlock->isa == &_NSConcreteGlobalBlock)
 		return aBlock;
 
+	/* Increment reference count for heap-allocated Blocks. */
 	if (f & BLOCK_NEEDS_FREE && aBlock->isa == &_NSConcreteMallocBlock) {
 		retainFlags(&aBlock->flags);
 		return aBlock;
 	}
 
+	/* If execution reached here, we must be a stack Block. */
 	if (aBlock->isa != &_NSConcreteStackBlock)
 		abort();
 
+	/* Make a copy of the stack Block and call its copy helper. */
 	blockCopy = malloc(aBlock->descriptor->blockSize);
 	memcpy(blockCopy, aBlock, aBlock->descriptor->blockSize);
 	blockCopy->isa = _NSConcreteMallocBlock;
@@ -124,16 +128,25 @@ _Block_release(void *b)
 	aBlock = (BlockLiteral *)b;
 	f = atomic_load(&aBlock->flags);
 
+	/*
+	 * Global Blocks and stack Blocks do not participate in reference
+	 * counting. A valid heap Block must have BLOCK_NEEDS_FREE set; its
+	 * final reference is signaled when releaseFlags() returns true.
+	 */
 	if (f & BLOCK_IS_GLOBAL || (f & BLOCK_NEEDS_FREE) == 0 ||
 	    aBlock->isa == &_NSConcreteStackBlock ||
 	    releaseFlags(&aBlock->flags) == false)
 		return;
 
+	/*
+	 * If execution reached here, the heap Block is deallocating. Call
+	 * our dispose helper.
+	 */
 	if (f & BLOCK_HAS_COPY_DISPOSE)
 		aBlock->copyDisposeDescriptor->BlockDisposeHelper(aBlock);
 
+	/* Tell the Objective-C runtime to remove all weak references to us. */
 	_Block_objc_delete_weak_refs(aBlock);
-	_Block_objc_release(aBlock);
 	free((void *)aBlock);
 }
 
@@ -148,11 +161,17 @@ _Block_byref_assign(void **d, void *s)
 	BlockCopyDisposeByref *src, *fwd, *copy;
 	int f;
 
+	/* Get the real Byref from the forwarding pointer. */
 	src = (BlockCopyDisposeByref *)s;
 	fwd = src->forwarding;
 	copy = fwd;
 	f = atomic_load(&fwd->flags);
 
+	/*
+	 * Heap Byrefs are reference counted. If given a stack Byref, make a
+	 * copy. Give it two references, one for itself and another for the
+	 * stack Byref pointing to it. The heap Byref is canonical.
+	 */
 	if (f & BLOCK_BYREF_NEEDS_FREE)
 		retainFlags(&fwd->flags);
 	else if ((f & BLOCK_REFCOUNT_MASK) == 0 && src == fwd) {
@@ -166,7 +185,7 @@ _Block_byref_assign(void **d, void *s)
 
 		src->forwarding = copy;
 	} else
-		abort();
+		abort(); /* Unreachable. */
 
 	*d = (void *)copy;
 }
@@ -178,6 +197,7 @@ _Block_byref_dispose(void const *s)
 	BlockCopyDisposeByref *fwd;
 	int f;
 
+	/* Get the real Byref from the forwarding pointer. */
 	fwd = ((BlockCopyDisposeByref const *)s)->forwarding;
 	f = atomic_load(&fwd->flags);
 
@@ -197,59 +217,74 @@ _Block_byref_dispose(void const *s)
  */
 
 void
-_Block_object_assign(void **dest, void *src, int const captureFlags)
-{	
+_Block_object_assign(void **dest, void *src,
+			BlockCaptureFlags const captureFlags)
+{
 	switch (captureFlags) {
+	/* Retain the object; assign in dest. */
 	case BLOCK_FIELD_IS_OBJECT:
 		_Block_objc_retain(src);
 		*dest = src;
-		break;
+		return;
 
+	/* Copy stack Block or retain heap Block; assign in dest. */
 	case BLOCK_FIELD_IS_BLOCK:
 		*dest = _Block_copy(src);
-		break;
+		return;
 
+	/* Copy stack Byref or retain heap Byref; assign in dest. */
 	case BLOCK_FIELD_IS_BYREF:
-	case BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK:
+	case BLOCK_FIELD_IS_WEAK_BYREF:
 		_Block_byref_assign(dest, src);
-		break;
+		return;
 
-	case BLOCK_FIELD_IS_BLOCK | BLOCK_BYREF_CALLER:
-	case BLOCK_FIELD_IS_BYREF | BLOCK_BYREF_CALLER:
-	case BLOCK_FIELD_IS_BLOCK | BLOCK_FIELD_IS_WEAK | BLOCK_BYREF_CALLER:
-	case BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK | BLOCK_BYREF_CALLER:
+	/*
+	 * Blocks and objects in a Byref are managed by the compiler; we only
+	 * need to copy pointers.
+	 */
+	case BLOCK_BYREF_CALLER_FIELD_IS_BLOCK:
+	case BLOCK_BYREF_CALLER_FIELD_IS_OBJECT:
+	case BLOCK_BYREF_CALLER_FIELD_IS_WEAK_BLOCK:
+	case BLOCK_BYREF_CALLER_FIELD_IS_WEAK_OBJECT:
 		*dest = src;
-		break;
-
-	default:
-		abort();
+		return;
 	}
+
+	/* Unreachable. */
+	abort();
 }
 
 void
-_Block_object_dispose(void *src, int const captureFlags)
+_Block_object_dispose(void *src, BlockCaptureFlags const captureFlags)
 {
 	switch (captureFlags) {
 	case BLOCK_FIELD_IS_OBJECT:
 		_Block_objc_release(src);
-		break;
+		return;
 
 	case BLOCK_FIELD_IS_BLOCK:
 		_Block_release(src);
-		break;
+		return;
 
 	case BLOCK_FIELD_IS_BYREF:
 	case BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK:
 		_Block_byref_dispose(src);
-		break;
+		return;
 
-	default:
-		abort();
+	/* Blocks and objects in a Byref are managed by the compiler. */
+	case BLOCK_BYREF_CALLER_FIELD_IS_BLOCK:
+	case BLOCK_BYREF_CALLER_FIELD_IS_OBJECT:
+	case BLOCK_BYREF_CALLER_FIELD_IS_WEAK_BLOCK:
+	case BLOCK_BYREF_CALLER_FIELD_IS_WEAK_OBJECT:
+		return;
 	}
+
+	/* Unreachable. */
+	abort();
 }
 
 /*
- * Callback hooks from libobjc2 for manipulating Blocks as objects.
+ * Callback hooks from libobjc2 for manipulating objects.
  */
 
 void

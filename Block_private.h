@@ -38,13 +38,30 @@ enum BlockByrefFlags : int {
 	BLOCK_BYREF_HAS_COPY_DISPOSE = 1 << 25
 };
 
-enum BlockCaptureFlags : int {
+/*
+ * Modifiers for objects, Blocks, and Byrefs do not belong in the enumeration,
+ * as they are not standalone values affecting control flow in
+ * _Block_object_{assign,dispose}().
+ */
+static constexpr int BLOCK_FIELD_IS_WEAK = 16;
+static constexpr int BLOCK_BYREF_CALLER = 128;
+
+typedef enum BlockCaptureFlags : int {
 	BLOCK_FIELD_IS_OBJECT = 3,
 	BLOCK_FIELD_IS_BLOCK = 7,
 	BLOCK_FIELD_IS_BYREF = 8,
-	BLOCK_FIELD_IS_WEAK = 16,
-	BLOCK_BYREF_CALLER = 128
-};
+	BLOCK_FIELD_IS_WEAK_BYREF = BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK,
+	BLOCK_BYREF_CALLER_FIELD_IS_BLOCK = BLOCK_BYREF_CALLER |
+					    BLOCK_FIELD_IS_BLOCK,
+	BLOCK_BYREF_CALLER_FIELD_IS_OBJECT = BLOCK_BYREF_CALLER |
+					    BLOCK_FIELD_IS_OBJECT,
+	BLOCK_BYREF_CALLER_FIELD_IS_WEAK_BLOCK = BLOCK_BYREF_CALLER |
+						 BLOCK_FIELD_IS_BLOCK |
+						 BLOCK_FIELD_IS_WEAK,
+	BLOCK_BYREF_CALLER_FIELD_IS_WEAK_OBJECT = BLOCK_BYREF_CALLER |
+						  BLOCK_FIELD_IS_OBJECT |
+						  BLOCK_FIELD_IS_WEAK
+} BlockCaptureFlags;
 
 typedef struct BlockLiteral {
 	void *isa;
@@ -164,10 +181,10 @@ typedef struct Block_callbacks_RR {
  */
 
 void
-_Block_object_assign(void **, void *, int const);
+_Block_object_assign(void **, void *, BlockCaptureFlags const);
 
 void
-_Block_object_dispose(void *, int const);
+_Block_object_dispose(void *, BlockCaptureFlags const);
 
 void
 _Block_use_RR2(Block_callbacks_RR const *);

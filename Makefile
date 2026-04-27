@@ -1,7 +1,9 @@
 
+CC = clang-21
 CFLAGS = -Weverything -std=c23 -fPIC \
-	 -Wno-pre-c11-compat -Wno-pre-c23-compat -Wno-reserved-identifier \
-	 -Wno-incompatible-library-redeclaration -Wno-implicit-void-ptr-cast \
+	 -Wno-c++98-compat -Wno-pre-c11-compat -Wno-pre-c23-compat \
+	 -Wno-reserved-identifier -Wno-incompatible-library-redeclaration \
+	 -Wno-implicit-void-ptr-cast -Wno-switch-default \
 	 -Wno-undef
 LDFLAGS = -shared
 
