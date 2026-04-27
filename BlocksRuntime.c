@@ -100,11 +100,10 @@ _Block_copy(void *b)
 		return aBlock;
 	}
 
-	if (aBlock->isa != &_NSConcreteStackBlock ||
-	    (blockCopy = (BlockLiteral *)malloc(
-	     aBlock->descriptor->blockSize)) == nullptr)
+	if (aBlock->isa != &_NSConcreteStackBlock)
 		abort();
 
+	blockCopy = malloc(aBlock->descriptor->blockSize);
 	memcpy(blockCopy, aBlock, aBlock->descriptor->blockSize);
 	blockCopy->isa = _NSConcreteMallocBlock;
 	atomic_init(&blockCopy->flags, f | BLOCK_NEEDS_FREE | 2);
@@ -157,10 +156,7 @@ _Block_byref_assign(void **d, void *s)
 	if (f & BLOCK_BYREF_NEEDS_FREE)
 		retainFlags(&fwd->flags);
 	else if ((f & BLOCK_REFCOUNT_MASK) == 0 && src == fwd) {
-		if ((copy = (BlockCopyDisposeByref *)malloc(
-		     src->size)) == nullptr)
-			abort();
-
+		copy = malloc(src->size);
 		memcpy(copy, src, src->size);
 		copy->forwarding = copy;
 		atomic_init(&copy->flags, f | BLOCK_BYREF_NEEDS_FREE | 4);
