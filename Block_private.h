@@ -63,6 +63,8 @@ typedef enum BlockCaptureFlags : int {
 						  BLOCK_FIELD_IS_WEAK
 } BlockCaptureFlags;
 
+static_assert(sizeof(int _Atomic) == sizeof(int) && _Alignof(int _Atomic) == _Alignof(int));
+
 typedef struct BlockLiteral {
 	void *isa;
 	int _Atomic flags;
