@@ -45,11 +45,12 @@ static void (*_Block_objc_delete_weak_refs)(void const *) = empty;
  */
 
 [[clang::always_inline]]
-inline static void
+static inline void
 retainFlags(int _Atomic *flags)
 {
 	int f = atomic_load(flags);
 
+	/* We should probably crash if the reference count becomes saturated. */
 	while (true) {
 		if ((f & BLOCK_REFCOUNT_MASK) == BLOCK_REFCOUNT_MASK ||
 		    atomic_compare_exchange_strong(flags, &f, f + 2))
@@ -58,11 +59,12 @@ retainFlags(int _Atomic *flags)
 }
 
 [[clang::always_inline]]
-inline static bool
+static inline bool
 releaseFlags(int _Atomic *flags)
 {
 	int f = atomic_load(flags);
 
+	/* We should probably crash if the reference count becomes saturated. */
 	while (true) {
 		if ((f & BLOCK_REFCOUNT_MASK) == BLOCK_REFCOUNT_MASK ||
 		    (f & BLOCK_REFCOUNT_MASK) == 0)
@@ -147,7 +149,7 @@ _Block_release(void *b)
 
 	/* Tell the Objective-C runtime to remove all weak references to us. */
 	_Block_objc_delete_weak_refs(aBlock);
-	free((void *)aBlock);
+	free(aBlock);
 }
 
 /*
@@ -155,7 +157,7 @@ _Block_release(void *b)
  */
 
 [[clang::always_inline]]
-inline static void
+static inline void
 _Block_byref_assign(void **d, void *s)
 {
 	BlockCopyDisposeByref *src, *fwd, *copy;
@@ -180,7 +182,7 @@ _Block_byref_assign(void **d, void *s)
 		copy->forwarding = copy;
 		atomic_init(&copy->flags, f | BLOCK_BYREF_NEEDS_FREE | 4);
 		
-		if (f & BLOCK_HAS_COPY_DISPOSE)
+		if (f & BLOCK_BYREF_HAS_COPY_DISPOSE)
 			src->ByrefCopyHelper(copy, src);
 
 		src->forwarding = copy;
@@ -191,7 +193,7 @@ _Block_byref_assign(void **d, void *s)
 }
 
 [[clang::always_inline]]
-inline static void
+static inline void
 _Block_byref_dispose(void const *s)
 {
 	BlockCopyDisposeByref *fwd;
@@ -202,14 +204,13 @@ _Block_byref_dispose(void const *s)
 	f = atomic_load(&fwd->flags);
 
 	if ((f & BLOCK_BYREF_NEEDS_FREE) == 0 ||
-	    (f & BLOCK_REFCOUNT_MASK) == 0 ||
 	     releaseFlags(&fwd->flags) == false)
 		return;
 
 	if (f & BLOCK_BYREF_HAS_COPY_DISPOSE)
 		fwd->ByrefDisposeHelper(fwd);
 
-	free((void *)fwd);
+	free(fwd);
 }
 
 /*
@@ -267,7 +268,7 @@ _Block_object_dispose(void *src, BlockCaptureFlags const captureFlags)
 		return;
 
 	case BLOCK_FIELD_IS_BYREF:
-	case BLOCK_FIELD_IS_BYREF | BLOCK_FIELD_IS_WEAK:
+	case BLOCK_FIELD_IS_WEAK_BYREF:
 		_Block_byref_dispose(src);
 		return;
 
@@ -290,7 +291,7 @@ _Block_object_dispose(void *src, BlockCaptureFlags const captureFlags)
 void
 _Block_use_RR2(Block_callbacks_RR const *callbacks)
 {
-        _Block_objc_retain = callbacks->retain;
-        _Block_objc_release = callbacks->release;
-        _Block_objc_delete_weak_refs = callbacks->destructInstance;
+	_Block_objc_retain = callbacks->retain;
+	_Block_objc_release = callbacks->release;
+	_Block_objc_delete_weak_refs = callbacks->destructInstance;
 }
