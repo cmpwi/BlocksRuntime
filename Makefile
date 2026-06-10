@@ -1,5 +1,5 @@
 
-CC = clang-21
+CC = clang
 CFLAGS = -Weverything -std=c23 -fPIC \
 	 -Wno-c++98-compat -Wno-pre-c11-compat -Wno-pre-c23-compat \
 	 -Wno-reserved-identifier -Wno-incompatible-library-redeclaration \
